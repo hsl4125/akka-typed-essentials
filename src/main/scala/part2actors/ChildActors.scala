@@ -24,8 +24,11 @@ object ChildActors {
     trait Command
     case class CreateChild(name: String) extends Command
     case class TellChild(message: String) extends Command
+    case object StopChild extends Command
 
-    def apply(): Behavior[Command] = Behaviors.receive{ (context, message) =>
+    def apply(): Behavior[Command] = idle()
+
+    def idle(): Behavior[Command] = Behaviors.receive{ (context, message) =>
       message match {
         case CreateChild(name) =>
           context.log.info(s"[parent] Creating child with name: $name")
@@ -41,6 +44,10 @@ object ChildActors {
           context.log.info(s"[parent] Sending message $message to child")
           childRef ! message  // <- send an message to another actor
           Behaviors.same
+        case StopChild =>
+          context.log.info("[parent] stopping child")
+          context.stop(childRef)  // only works with CHILD actors
+          idle()
         case _ =>
           context.log.info("[parent] Command not supported")
           Behaviors.same
@@ -64,6 +71,9 @@ object ChildActors {
       val parent = context.spawn(Parent(), "parent")
       parent ! CreateChild("child")
       parent ! TellChild("Hi kid, you there?")
+      parent ! StopChild
+      parent ! CreateChild("child2")
+      parent ! TellChild("yo new kid, how are you?")
 
       // user guardian usually has no behavior of its own
       Behaviors.empty
@@ -82,6 +92,7 @@ object ChildActors {
     trait Command
     case class CreateChild(name: String) extends Command
     case class TellChild(name: String, message: String) extends Command
+    case class StopChild(name: String) extends Command
 
     def apply(): Behavior[Command] = active(Map())
 
@@ -97,6 +108,13 @@ object ChildActors {
             child => child ! message
           }
           Behaviors.same
+        case StopChild(name) =>
+          context.log.info(s"[parent] Attempting to stop child with name: $name")
+          val childOption = children.get(name)
+          childOption.fold(context.log.info(s"[parent] Child '$name' could not stopped: name doesn't exist")) {
+            ref => context.stop(ref)
+          }
+          active(children - name)
       }
     }
   }
@@ -111,6 +129,9 @@ object ChildActors {
       parent ! TellChild("alice", "How are you!")
       parent ! TellChild("hai", "I hope you akka skill good.")
       parent ! TellChild("bob", "I'm very miss you!")
+
+      parent ! StopChild("alice")
+      parent ! TellChild("alice", "hey Alice, you still there")
 
       Behaviors.empty
     }
